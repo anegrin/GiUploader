@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#AC323B</item>
+        <item name="android:navigationBarColor">#101820</item><item name="android:statusBarColor">#101820</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/giuploader_background</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/giuploader_background</item>
+    </style>
+</resources>
