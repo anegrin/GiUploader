@@ -168,7 +168,37 @@ class MainActivity : Activity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
-        view.addView(releaseSpinner, LinearLayout.LayoutParams(-1, dp(52)))
+        val releaseSelector = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        releaseSelector.addView(
+            releaseSpinner,
+            LinearLayout.LayoutParams(0, dp(52), 1f)
+        )
+        val infoButton = button("ⓘ").apply {
+            contentDescription = "Show release information"
+            textSize = 21f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            minWidth = dp(26)
+            minimumWidth = dp(26)
+            minHeight = dp(26)
+            minimumHeight = dp(26)
+            setPadding(0, 0, 0, 0)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(172, 50, 59))
+            }
+            setOnClickListener { showReleaseInfo(chosenRelease ?: availableReleases.first()) }
+        }
+        releaseSelector.addView(
+            infoButton,
+            LinearLayout.LayoutParams(dp(26), dp(26)).apply {
+                setMargins(dp(8), 0, 0, 0)
+            }
+        )
+        view.addView(releaseSelector)
         view.addView(text("Firmware variant", 15f, Color.LTGRAY).apply {
             setPadding(0, dp(18), 0, dp(8))
         })
@@ -187,6 +217,41 @@ class MainActivity : Activity() {
             )
         }
         setContentView(view)
+    }
+
+    private fun showReleaseInfo(release: FirmwareRelease) {
+        val published = release.publishedAt.ifBlank { "Unknown" }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Release information")
+            .setMessage("Loading release notes…")
+            .setPositiveButton("Close", null)
+            .setCancelable(true)
+            .show()
+
+        worker.execute {
+            try {
+                val notes = FirmwareRepository.fetchReleaseBody(release)
+                runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    val details = buildString {
+                        append("Name: ${release.name}\nPublished: $published")
+                        if (notes.isNotBlank()) {
+                            append("\n\nNotes:\n")
+                            append(notes)
+                        }
+                    }
+                    dialog.setMessage(details)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    dialog.setMessage(
+                        "Name: ${release.name}\nPublished: $published\n\n" +
+                            "Could not load release notes."
+                    )
+                }
+            }
+        }
     }
 
     private fun downloadFirmware() {

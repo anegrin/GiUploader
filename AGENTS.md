@@ -26,13 +26,14 @@ GiUploader is a native Kotlin Android app that guides a user through selecting a
 
 ## UI and flow
 
-The wizard flow is implemented in `MainActivity.kt`: splash, firmware selection/download, USB connection/permission, erase/upload/progress, and result. Layouts are currently created programmatically. Use dp conversions for all dimensions; raw pixel sizes make button labels clip on real devices.
+The wizard flow is implemented in `MainActivity.kt`: splash, firmware selection/download, USB connection/permission, erase/upload/progress, and result. The release selector's info button fetches the selected release API URL on demand and displays its name, publication date, and notes. Layouts are currently created programmatically. Use dp conversions for all dimensions; raw pixel sizes make button labels clip on real devices.
 
 ## Editing and validation
 
 - Preserve unrelated user changes.
 - Use `apply_patch` for source edits.
 - Keep network work and USB work off the main thread.
+- Downloaded firmware must be SHA-256 verified against the GitHub release asset digest before it can proceed to flashing. Release notes are fetched only when the user opens release info.
 - Do not add a desktop-only DFU dependency; the Android USB implementation is local.
 - Build with the Gradle wrapper/Gradle 9.5.0 and JDK 17. A physical STM32F072 in DFU mode is required for end-to-end validation.
 - Before changing DFU behavior, compare the request sequence with ST AN3156 and document any device-specific assumption.

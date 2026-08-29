@@ -13,6 +13,8 @@ This project was created using Codex Luna.
 - Guided firmware upload wizard
 - SLCAN, C1CAN, and BHCAN firmware selection
 - Automatic download from the latest GiUCAN GitHub release
+- GitHub SHA-256 verification before firmware can be flashed
+- Release information dialog with name, publication date, and notes
 - STM32 DFU detection and USB permission handling
 - Page erase and upload progress
 - Dark STM32-inspired splash screen and app icon
@@ -34,10 +36,11 @@ The app requires the `INTERNET` permission to download releases and the USB host
 
 ## Usage
 
-1. Select a firmware variant.
-2. Put the STM32F072 board in DFU mode and connect it over USB.
-3. Choose **Upload** or **Erase and Upload**.
-4. Wait while GiUploader erases, writes, and finalizes the firmware.
+1. Select a release. Use the circular info button beside the release selector to view its name, publication date, and notes.
+2. Select a firmware variant. The downloaded asset is SHA-256 verified against the digest returned by GitHub before continuing.
+3. Put the STM32F072 board in DFU mode and connect it over USB.
+4. Choose **Upload** or **Erase and Upload**.
+5. Wait while GiUploader erases, writes, and finalizes the firmware.
 
 ### Upload modes
 
