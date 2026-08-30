@@ -26,7 +26,7 @@ GiUploader is a native Kotlin Android app that guides a user through selecting a
 
 ## UI and flow
 
-The wizard flow is implemented in `MainActivity.kt`: splash, firmware selection/download, USB connection/permission, erase/upload/progress, and result. The release selector's info button fetches the selected release API URL on demand and displays its name, publication date, and notes. Layouts are currently created programmatically. Use dp conversions for all dimensions; raw pixel sizes make button labels clip on real devices.
+The wizard flow is implemented in `MainActivity.kt`: splash, firmware selection/download, optional local ELF file selection, USB connection/permission, erase/upload/progress, and result. All non-splash wizard screens are wrapped in a vertical `ScrollView` so they remain usable on smaller displays. The activity handles system-bar insets explicitly for edge-to-edge Android versions so content does not render under the status or navigation bars. The release selector's info control fetches the selected release API URL on demand and displays its name, publication date, and notes; keep compact glyph controls centered using their own text container rather than relying on button font metrics. Local firmware is loaded off the main thread and then uses the same ELF parsing and DFU upload path as downloaded firmware; it has no GitHub digest to verify. Layouts are currently created programmatically. Use dp conversions for all dimensions; raw pixel sizes make button labels clip on real devices.
 
 ## Editing and validation
 

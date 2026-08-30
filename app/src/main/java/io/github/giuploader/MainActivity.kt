@@ -2,18 +2,25 @@ package io.github.giuploader
 
 import android.app.*
 import android.content.*
+import android.database.Cursor
 import android.hardware.usb.*
 import android.os.*
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.view.*
 import android.widget.*
 import java.util.concurrent.Executors
 import android.util.TypedValue
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 private const val STM32_VID = 0x0483
 
 private const val ACTION_USB_PERMISSION = "io.github.giuploader.USB_PERMISSION"
+private const val REQUEST_LOCAL_FIRMWARE = 1001
 
 class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -22,6 +29,7 @@ class MainActivity : Activity() {
     private var firmware: Firmware? = null
     private var chosen: FirmwareKind? = null
     private var chosenRelease: FirmwareRelease? = null
+    private var firmwareDisplayName: String = ""
     private var result: Boolean = false
     private var permissionRequested = false
     private val receiver = object : BroadcastReceiver() {
@@ -40,6 +48,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         usb = getSystemService(USB_SERVICE) as UsbManager
         registerReceiver(receiver, IntentFilter(ACTION_USB_PERMISSION), RECEIVER_NOT_EXPORTED)
         showSplash()
@@ -64,6 +73,34 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(16, 24, 32))
         }
         return root
+    }
+
+    private fun showScrollable(view: LinearLayout) {
+        val scroll = ScrollView(this).apply {
+            setFillViewport(true)
+            setBackgroundColor(Color.rgb(16, 24, 32))
+        }
+        scroll.addView(view, ViewGroup.LayoutParams(-1, -2))
+        applySystemBarInsets(scroll)
+        setContentView(scroll)
+    }
+
+    private fun applySystemBarInsets(view: View) {
+        val initialLeft = view.paddingLeft
+        val initialTop = view.paddingTop
+        val initialRight = view.paddingRight
+        val initialBottom = view.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(view) { target, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            target.setPadding(
+                initialLeft,
+                initialTop + bars.top,
+                initialRight,
+                initialBottom + bars.bottom
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(view)
     }
 
     private fun text(value: String, size: Float, color: Int = Color.WHITE): TextView {
@@ -109,6 +146,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         view.addView(title, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT))
+        applySystemBarInsets(view)
         setContentView(view)
 
         Handler(Looper.getMainLooper()).postDelayed({ showFirmwareChoice() }, 2000)
@@ -117,7 +155,7 @@ class MainActivity : Activity() {
     private fun showFirmwareChoice() {
         val view = screen("Loading releases", "Fetching available GiUCAN release tags from GitHub…")
         view.addView(ProgressBar(this))
-        setContentView(view)
+        showScrollable(view)
 
         worker.execute {
             try {
@@ -134,6 +172,8 @@ class MainActivity : Activity() {
     private fun showFirmwareSelection(availableReleases: List<FirmwareRelease>) {
         chosen = null
         chosenRelease = availableReleases.first()
+        firmware = null
+        firmwareDisplayName = ""
         val view = screen(
             "Choose firmware",
             "Select the GiUCAN firmware and release you want to install."
@@ -176,9 +216,11 @@ class MainActivity : Activity() {
             releaseSpinner,
             LinearLayout.LayoutParams(0, dp(52), 1f)
         )
-        val infoButton = button("ⓘ").apply {
+        val infoButton = TextView(this).apply {
+            text = "ⓘ"
             contentDescription = "Show release information"
-            textSize = 21f
+            textSize = 20f
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             includeFontPadding = false
             minWidth = dp(26)
@@ -190,6 +232,8 @@ class MainActivity : Activity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.rgb(172, 50, 59))
             }
+            isClickable = true
+            isFocusable = true
             setOnClickListener { showReleaseInfo(chosenRelease ?: availableReleases.first()) }
         }
         releaseSelector.addView(
@@ -216,7 +260,74 @@ class MainActivity : Activity() {
                 }
             )
         }
-        setContentView(view)
+
+        view.addView(text("-- OR --", 15f, Color.LTGRAY).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(22), 0, dp(8))
+        })
+        view.addView(text("Load a firmware file from your device storage.", 15f, Color.LTGRAY).apply {
+            gravity = Gravity.CENTER
+        })
+        val localButton = button("Pick firmware file")
+        localButton.setOnClickListener {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                // ELF files are reported with different MIME types by storage providers.
+                type = "*/*"
+            }
+            startActivityForResult(intent, REQUEST_LOCAL_FIRMWARE)
+        }
+        view.addView(localButton, buttonLayout(dp(10)))
+        showScrollable(view)
+    }
+
+    @Deprecated("Use Activity Result APIs when this activity is migrated")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_LOCAL_FIRMWARE || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        loadLocalFirmware(uri)
+    }
+
+    private fun loadLocalFirmware(uri: Uri) {
+        val view = screen("Preparing firmware", "Loading the selected firmware file…")
+        view.addView(ProgressBar(this))
+        showScrollable(view)
+
+        worker.execute {
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Could not open the selected firmware file")
+                require(bytes.isNotEmpty()) { "The selected firmware file is empty" }
+                firmware = Firmware(bytes, localFirmwareName(uri))
+                chosen = null
+                chosenRelease = null
+                firmwareDisplayName = firmware!!.name
+                runOnUiThread { showConnect() }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    showError("Local firmware load failed", e.message ?: "Could not read the selected file.")
+                }
+            }
+        }
+    }
+
+    private fun localFirmwareName(uri: Uri): String {
+        val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor: Cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment ?: "Selected firmware"
+    }
+
+    private fun firmwareSourceLabel(): String = chosen?.label ?: "Local file"
+
+    private fun firmwareSourceDetails(): String {
+        return if (chosen != null && chosenRelease != null) {
+            "Firmware: ${chosen!!.label}\nRelease: ${chosenRelease!!.tagName}"
+        } else {
+            "Firmware: ${firmwareDisplayName.ifBlank { firmware?.name ?: "Selected local file" }}"
+        }
     }
 
     private fun showReleaseInfo(release: FirmwareRelease) {
@@ -262,11 +373,12 @@ class MainActivity : Activity() {
             "Downloading ${kind.label} firmware from release ${release.tagName}…"
         )
         view.addView(ProgressBar(this))
-        setContentView(view)
+        showScrollable(view)
 
         worker.execute {
             try {
                 firmware = FirmwareRepository.download(this, kind, release)
+                firmwareDisplayName = firmware!!.name
                 runOnUiThread { showConnect() }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -282,11 +394,11 @@ class MainActivity : Activity() {
             "Connect your board",
             "Put the STM32 board in DFU mode, then connect it with a USB cable.\n\n" +
                 "We’ll check automatically.\n\n" +
-                "Firmware: ${chosen!!.label}\nRelease: ${chosenRelease!!.tagName}"
+                firmwareSourceDetails()
         )
         val status = text("Waiting for STM32 bootloader…", 16f, Color.rgb(172, 50, 59))
         view.addView(status)
-        setContentView(view)
+        showScrollable(view)
 
         val handler = Handler(Looper.getMainLooper())
         val check = object : Runnable {
@@ -336,7 +448,7 @@ class MainActivity : Activity() {
     private fun showReady() {
         val view = screen(
             "Ready to upload",
-            "${chosen!!.label} firmware (${chosenRelease!!.tagName}) is ready. Choose how to program your board."
+            "${firmwareSourceLabel()} firmware is ready. Choose how to program your board."
         )
         val upload = button("Upload")
         val erase = button("Erase and Upload")
@@ -344,13 +456,13 @@ class MainActivity : Activity() {
         erase.setOnClickListener { startUpload(true) }
         view.addView(upload, buttonLayout(dp(22), dp(8)))
         view.addView(erase, buttonLayout())
-        setContentView(view)
+        showScrollable(view)
     }
 
     private fun startUpload(erase: Boolean) {
         val view = screen(
-            "Uploading ${chosen!!.label}",
-            "Release: ${chosenRelease!!.tagName}\nErasing flash and writing firmware…"
+            "Uploading ${firmwareSourceLabel()}",
+            "${firmwareSourceDetails()}\nErasing flash and writing firmware…"
         )
         val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -360,7 +472,7 @@ class MainActivity : Activity() {
         })
         val status = text("Starting…", 15f, Color.LTGRAY)
         view.addView(status)
-        setContentView(view)
+        showScrollable(view)
 
         worker.execute {
             try {
@@ -386,9 +498,9 @@ class MainActivity : Activity() {
     private fun showResult(error: String?) {
         val success = error == null || error.startsWith("Upload completed")
         val resultMessage = if (success) {
-            "Your ${chosen!!.label} firmware (${chosenRelease!!.tagName}) was written successfully."
+            "Your ${firmwareSourceLabel()} firmware was written successfully."
         } else {
-            "Firmware: ${chosen!!.label}\nRelease: ${chosenRelease!!.tagName}\n\n$error"
+            "${firmwareSourceDetails()}\n\n$error"
         }
         val view = screen(
             if (success) "Upload complete" else "Upload failed",
@@ -409,7 +521,7 @@ class MainActivity : Activity() {
         close.setOnClickListener { finish() }
         view.addView(again, buttonLayout(dp(25), dp(8)))
         view.addView(close, buttonLayout())
-        setContentView(view)
+        showScrollable(view)
     }
 
     private fun showError(title: String, body: String) {
@@ -417,7 +529,7 @@ class MainActivity : Activity() {
         val retry = button("Try again")
         retry.setOnClickListener { showFirmwareChoice() }
         view.addView(retry, buttonLayout(dp(25)))
-        setContentView(view)
+        showScrollable(view)
     }
 
     private fun buttonLayout(top: Int = 0, bottom: Int = 0): LinearLayout.LayoutParams {
